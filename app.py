@@ -1,19 +1,18 @@
 ﻿import json
-import speech_recognition as sr
 from flask import Flask, jsonify, request, url_for, render_template
 from flask import render_template, Blueprint, make_response
-from urllib import request as rq
-from gtts import gTTS
-import io
-import os
-import random
 import logging
 from logdna import LogDNAHandler
 import datetime
+from urllib import request as rq
+import io
+import os
+import random
+import speech_recognition as sr
+from gtts import gTTS
 import ffmpeg
 
 app = Flask(__name__)
-#app.debug = True
 
 class PrefixMiddleware(object):
 #class for URL sorting 
@@ -184,9 +183,9 @@ def voiceprocess_controller():
 
 @app.route('/values')
 def values_controller():
-    return jsonify({'about':'FLASK API REST RUNNING'})
+    return 'Api is running'
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(app, host='0.0.0.0', port=8082)
-    #app.run(host='0.0.0.0')
+    serve(app, host='0.0.0.0', port=8082) # waitress-serve --port=8082 app:app
+    # app.run(host='0.0.0.0') # flask run
