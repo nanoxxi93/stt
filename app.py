@@ -4,6 +4,7 @@ from flask import render_template, Blueprint, make_response
 import logging
 from logdna import LogDNAHandler
 import datetime
+import requests
 from urllib import request as rq
 import io
 import os
@@ -50,15 +51,17 @@ logging.basicConfig(
     datefmt='%Y%m%d.%H%M%S'
 )
 
-class SttDTO:
+class SttDTO(object):
     # Constructor
-    def __init__(self, tipo, url, mensaje, lang = "es-es", respuesta = "", path = ""):
+    def __init__(self, tipo, url, mensaje, lang = "es-es", respuesta = "", localpath = "", path = "", storage = None):
         self.tipo = tipo
         self.url = url
         self.mensaje = mensaje
         self.lang = lang
         self.respuesta = respuesta
+        self.localpath = localpath
         self.path = path
+        self.storage = storage
 
     # Parser
     @classmethod
@@ -135,16 +138,24 @@ def fn_text_to_speech(sttDTO):
     fnc = 'fn_text_to_speech'
     try:
         gTTS_obj = gTTS(text=sttDTO.mensaje, lang=sttDTO.lang, slow=False)
-        # path = 'C:\\APPS\\PUBLIC\\STTaudio'
-        dirpath = fn_get_path()
+        filename = '{}.mp3'.format(fn_generate_random_name())
+        if type(sttDTO.storage) is dict:
+            fp = io.BytesIO()
+            gTTS_obj.write_to_fp(fp)
+            files = {'': (filename, fp)}
+            logging.debug('{} --> filename: {}'.format(fnc, filename))
+            response = requests.post(sttDTO.storage["_url"], data=sttDTO.storage, files=files)
+            logging.info('{} --> filename: {} Uploaded'.format(fnc, response))
+            return response.text
+        sttDTO.localpath = sttDTO.localpath if sttDTO.localpath != '' else fn_get_path()
+        dirpath = sttDTO.localpath
         subdirpath = os.path.join(dirpath, 'files', '')
         if not os.path.exists(subdirpath):
             os.makedirs(subdirpath)
-        filename = '{}.mp3'.format(fn_generate_random_name())
         logging.debug('{} --> filename: {}'.format(fnc, filename))
         gTTS_obj.save(os.path.join(subdirpath, filename))
         logging.info('{} --> filename: {} Saved'.format(fnc, filename))
-        return filename
+        return '{}{}'.format(sttDTO.path, filename)
     except Exception as e:
         raise e
 
@@ -166,9 +177,9 @@ def voiceprocess_controller():
                     logging.debug('{} --> {}'.format(endpoint, sttDTO.tipo))
                     sttDTO.respuesta = "text -> speech"
                     sttDTO.url = fn_text_to_speech(sttDTO)
-                    sttDTO.url = '{}{}'.format(sttDTO.path, sttDTO.url)
                 else:
                     raise ValueError('Valid type are speechtotext or texttospeech')
+                del sttDTO.storage
                 logging.info('{} --> RESULT: {}'.format(endpoint, json.dumps(sttDTO.__dict__)))
                 return jsonify(sttDTO.__dict__), 200
             else:
