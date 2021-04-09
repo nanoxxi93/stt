@@ -6,7 +6,6 @@ from urllib import request as rq
 from gtts import gTTS
 import io
 import os
-import subprocess
 import random
 import logging
 from logdna import LogDNAHandler
