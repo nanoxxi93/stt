@@ -169,17 +169,21 @@ def voiceprocess_controller():
                     sttDTO.url = '{}{}'.format(sttDTO.path, sttDTO.url)
                 else:
                     raise ValueError('Valid type are speechtotext or texttospeech')
+                logging.info('{} --> RESULT: {}'.format(endpoint, json.dumps(sttDTO)))
                 return jsonify(sttDTO.__dict__), 200
             else:
                 raise TypeError('The body is not a valid json')
         else:
-            return jsonify({'tipo':'speechToText or textToSpeech'})
-    except (AssertionError, KeyError, TypeError, ValueError) as e:
+            return 'Method not allowed', 400
+    except KeyError as e:
         logging.exception(e)
-        return jsonify(str(e).split(") ")[-1]), 400
+        return '{} parameter not found'.format(str(e)), 400
+    except (AttributeError, AssertionError, TypeError, ValueError) as e:
+        logging.exception(e)
+        return str(e), 400
     except Exception as e:
         logging.exception(e)
-        return jsonify('Please contact with support'), 400
+        return 'Please contact with support', 400
 
 @app.route('/values')
 def values_controller():
