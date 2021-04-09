@@ -1,0 +1,13 @@
+[Unit]
+Description=uWSGI instance to serve STT
+After=network.target
+
+[Service]
+User=hernandoarima
+Group=www-data
+WorkingDirectory=/var/www/html/stt
+Environment="PATH=/var/www/html/stt/sttenv/bin"
+ExecStart=/var/www/html/stt/sttenv/bin/uwsgi --ini app.ini
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,238 @@
+﻿"""
+This script runs the application using a development server.
+It contains the definition of routes and views for the application.
+"""
+
+import json
+import speech_recognition as sr
+from flask import Flask, jsonify, request, url_for, render_template
+from flask import render_template, Blueprint, make_response
+from urllib import request as rq
+from gtts import gTTS
+import os
+import subprocess
+import random
+import logging
+import datetime
+
+app = Flask(__name__)
+#app.debug = True
+
+class PrefixMiddleware(object):
+#class for URL sorting 
+    def __init__(self, app, prefix=''):
+        self.app = app
+        self.prefix = prefix
+
+    def __call__(self, environ, start_response):
+        #in this line I'm doing a replace of the word flaskredirect which is my app name in IIS to ensure proper URL redirect
+        if environ['PATH_INFO'].lower().replace('/stt','').startswith(self.prefix):
+            environ['PATH_INFO'] = environ['PATH_INFO'].lower().replace('/stt','')[len(self.prefix):]
+            environ['SCRIPT_NAME'] = self.prefix
+            return self.app(environ, start_response)
+        else:
+            start_response('404', [('Content-Type', 'text/plain')])            
+            return ["This url does not belong to the app.".encode()]
+
+# Make the WSGI interface available at the top level so wfastcgi can get it.
+# wsgi_app = app.wsgi_app
+app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/api')
+
+logging.basicConfig(filename='log.log',level=logging.DEBUG,format='%(asctime)s - %(process)d-%(levelname)s-%(message)s')
+
+class Pedido:
+    #Constructor
+    def __init__(self, tipo, url, mensaje, respuesta, path = ""):
+        self.tipo = tipo
+        self.url = url
+        self.mensaje = mensaje
+        self.respuesta = respuesta
+        self.path = path
+
+    #Parser
+    @classmethod
+    def from_json(cls, json_string):
+        json_dict = json.loads(json_string)
+        return cls(**json_dict)
+    
+    #Funcion que retorna cuando se da print(Pedido) sin llamar a atributo
+    def __repr__(self):
+        return f'<Pedido message: {self.mensaje}>'
+
+def generateRandomNameTemp():
+    a = str(random.randint(101,999))
+    b = str(random.randint(101,999))
+    c = str(random.randint(101,999))
+    d = str(random.randint(101,999))
+    today = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return '{}_{}{}{}{}'.format(today,c,d,a,b)
+
+def getAudioFromFolder(filename):
+    AUDIO_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),filename)
+    return AUDIO_FILE
+
+def getPath():
+    try:
+        return os.path.dirname(os.path.realpath(__file__))
+    except:
+        return "ERROR/PATH/"
+
+def audiotowavffmpeg(url, filename, resultname):
+    print("Descargando audio.")
+    logging.debug("Descargando audio.")
+    # Abrir el url del archivo
+    fileOpen = rq.urlopen(url)
+    # Leer el archivo
+    file_info = fileOpen.read()
+    # Convertimos archivo a bytes.
+    file_info_bytes = bytes(file_info)
+    # Abrimos la conexi�n, wb = write in binary
+    newfile = open(filename,"wb")
+    # Guardamos informaci�n del archivo
+    newfile.write(file_info_bytes)
+    # Cerramos la conexi�n
+    newfile.close()
+    #Transform to wav
+    logging.debug('Empieza conversión de mp3 a wav')
+    command = 'ffmpeg -i {} -f segment -segment_time 60 -segment_list out.list -ab 160k -ac 2 -ar 44100 -vn {}'.format(filename, resultname)
+    subprocess.call(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    audiolist = open("out.list").read().split()
+    logging.debug('Termina conversión de mp3 a wav')
+    #AUDIO_FILE = getAudioFromFolder(resultname)
+    return audiolist
+
+def downloadAudioFileFunction(url, filename, resultname):
+    print("Descargando audio.")
+    logging.debug("Descargando audio.")
+    # Abrir el url del archivo
+    fileOpen = rq.urlopen(url)
+    # Leer el archivo
+    file_info = fileOpen.read()
+    # Convertimos archivo a bytes.
+    file_info_bytes = bytes(file_info)
+    # Abrimos la conexi�n, wb = write in binary
+    newfile = open(filename,"wb")
+    # Guardamos informaci�n del archivo
+    newfile.write(file_info_bytes)
+    # Cerramos la conexi�n
+    newfile.close()
+    #Transform to wav
+    logging.debug('Empieza conversión de mp3 a wav')
+    command = 'ffmpeg -i ./{} -ab 160k -ac 2 -ar 44100 -vn {}'.format(filename, resultname)
+    subprocess.call(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    logging.debug('Termina conversión de mp3 a wav')
+    AUDIO_FILE = getAudioFromFolder(resultname)
+    return AUDIO_FILE
+
+def speechToTextFunction(url):
+    r = sr.Recognizer()
+    filename = '{}.mp3'.format(generateRandomNameTemp())
+    resultname = '{}.wav'.format(generateRandomNameTemp())
+    logging.debug('Generó los nombres aleatorios ' + filename + " : " + resultname)
+    audioReceived = downloadAudioFileFunction(url, filename, resultname)
+    logging.debug('Empieza utilización del servicio speechRecognition')
+    with sr.AudioFile(audioReceived) as source:
+        # logging.debug('Captura el AudioSource del archivo')
+        audio = r.record(source)
+        r.recognize_google(audio,language="es-ES")
+    try:
+        logging.debug('Envía el AudioSource a Google para su procesamiento')
+        try:
+            return r.recognize_google(audio,language="es-ES")
+        except Exception as e:
+            logging.exception("Error en el servicio de procesamiento, reinténtelo más tarde")
+            return 'Error en el servicio de procesamiento'
+    except sr.UnknownValueError:
+        logging.exception('Se produjo un error.')
+        return 'Se produjo un error.'
+    except sr.RequestError as e:
+        logging.exception('Error: {} '.format(e))
+        return 'Error: {} '.format(e)
+
+def textToSpeechFunction(mensaje):
+    print("Transformando audio a texto.")
+    language = 'es-es'
+    myobj = gTTS(text=mensaje, lang=language, slow=False)
+    #path = getPath()
+    path = 'C:\\APPS\\PUBLIC\\STTaudio'
+    filename = '{}.mp3'.format(generateRandomNameTemp())
+    myobj.save('{}\\{}'.format(path,filename))
+    return '{}'.format(filename)
+
+@app.route('/voiceprocess/', methods=['GET','POST'])
+def voiceprocess():
+    try:
+        if (request.method == 'POST'):
+            logging.debug('Entró al POST')
+            some_json = request.get_json()#request -> json
+            jsonstring = json.dumps(some_json)#json -> string
+            logging.debug(jsonstring)
+            pedido = Pedido.from_json(jsonstring)#string -> object
+        
+            if pedido.tipo == 'speechToText':
+                #Proceso speechToText
+                logging.debug('Entró a speechToText')
+                pedido.respuesta = 'speech -> text'
+                pedido.mensaje = speechToTextFunction(pedido.url)
+                logging.debug('Terminó el procesamieto de Google')
+        
+            elif pedido.tipo == 'textToSpeech':
+                #Proceso textToSpeech
+                pedido.respuesta = "text -> speech"
+                pedido.url = textToSpeechFunction(pedido.mensaje)
+        
+            else:
+                pedido.respuesta = 'Tipo de solicitud no v�lida.'
+
+            logging.debug('paso 13')
+            jsonresult = json.dumps(pedido.__dict__)#object -> json
+            return jsonify(jsonresult), 201
+        else:
+            return jsonify({'about':'respuesta get speechToText.'})
+    except Exception as e:
+        logging.exception("Exception occurred")
+
+@app.route('/sharingvoicefile/', methods = ['GET','POST'])
+def voicefile():
+    if (request.method == 'POST'):
+        logging.debug('Entró al POST')
+        some_json = request.get_json()#request -> json
+        jsonstring = json.dumps(some_json)#json -> string
+        logging.debug(jsonstring)
+        pedido = Pedido.from_json(jsonstring)#string -> object
+        filename = '{}.mp3'.format(generateRandomNameTemp())
+        resultname = '{}.wav'.format(generateRandomNameTemp())
+        audioReceived = downloadAudioFileFunction(pedido.url, filename, resultname)
+    return jsonify(resultname)
+
+@app.route('/audiotowav/', methods = ['GET','POST'])
+def audiotowav():
+    if (request.method == 'POST'):
+        logging.debug('Entró al POST')
+        some_json = request.get_json()#request -> json
+        jsonstring = json.dumps(some_json)#json -> string
+        logging.debug(jsonstring)
+        pedido = Pedido.from_json(jsonstring)#string -> object
+        filename = '{}{}.mp3'.format(pedido.path, generateRandomNameTemp())
+        logging.debug(filename)
+        resultname = '{}{}_%03d.wav'.format(pedido.path, generateRandomNameTemp())
+        logging.debug(resultname)
+        audioReceived = audiotowavffmpeg(pedido.url, filename, resultname)
+    return jsonify(audioReceived)
+
+@app.route("/values")
+def hola():
+    return jsonify({"about":"FLASK API REST RUNNING"})
+
+#if __name__ == '_main_':
+#    app.run(debug=True)
+
+if __name__ == '__main__':
+    # import os
+    # HOST = os.environ.get('SERVER_HOST', 'localhost')
+    # try:
+        # PORT = int(os.environ.get('SERVER_PORT', '5555'))
+    # except ValueError:
+        # PORT = 5555
+    # app.run(HOST, PORT)
+    app.run(host='0.0.0.0',port=9010)

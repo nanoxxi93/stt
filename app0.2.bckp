@@ -1,0 +1,171 @@
+﻿"""
+This script runs the application using a development server.
+It contains the definition of routes and views for the application.
+"""
+
+import json
+import speech_recognition as sr
+from flask import Flask, jsonify, request, url_for, render_template
+from flask import render_template, Blueprint, make_response
+from urllib import request as rq
+from gtts import gTTS
+import io
+import os
+import subprocess
+import random
+import logging
+import datetime
+import ffmpeg
+
+app = Flask(__name__)
+#app.debug = True
+
+class PrefixMiddleware(object):
+#class for URL sorting 
+    def __init__(self, app, prefix=''):
+        self.app = app
+        self.prefix = prefix
+
+    def __call__(self, environ, start_response):
+        #in this line I'm doing a replace of the word flaskredirect which is my app name in IIS to ensure proper URL redirect
+        if environ['PATH_INFO'].lower().replace('/stt','').startswith(self.prefix):
+            environ['PATH_INFO'] = environ['PATH_INFO'].lower().replace('/stt','')[len(self.prefix):]
+            environ['SCRIPT_NAME'] = self.prefix
+            return self.app(environ, start_response)
+        else:
+            start_response('404', [('Content-Type', 'text/plain')])            
+            return ["This url does not belong to the app.".encode()]
+
+# Make the WSGI interface available at the top level so wfastcgi can get it.
+# wsgi_app = app.wsgi_app
+app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/api')
+
+logging.basicConfig(filename='log.log',level=logging.DEBUG,format='%(asctime)s - %(process)d-%(levelname)s-%(message)s')
+
+class Pedido:
+    #Constructor
+    def __init__(self, tipo, url, mensaje, respuesta, path = ""):
+        self.tipo = tipo
+        self.url = url
+        self.mensaje = mensaje
+        self.respuesta = respuesta
+        self.path = path
+
+    #Parser
+    @classmethod
+    def from_json(cls, json_string):
+        json_dict = json.loads(json_string)
+        return cls(**json_dict)
+    
+    #Funcion que retorna cuando se da print(Pedido) sin llamar a atributo
+    def __repr__(self):
+        return f'<Pedido message: {self.mensaje}>'
+
+def generateRandomNameTemp():
+    a = str(random.randint(101,999))
+    b = str(random.randint(101,999))
+    c = str(random.randint(101,999))
+    d = str(random.randint(101,999))
+    today = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return '{}_{}{}{}{}'.format(today,c,d,a,b)
+
+def getAudioFromFolder(filename):
+    AUDIO_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),filename)
+    return AUDIO_FILE
+
+def getPath():
+    try:
+        return os.path.dirname(os.path.realpath(__file__))
+    except:
+        raise Exception('ERROR/PATH/')
+
+def decode_audio(in_filename, **input_kwargs):
+    try:
+        logging.debug('Decodeando audio')
+        out, err = (ffmpeg
+            .input(in_filename, **input_kwargs)
+            .output('-', f='wav', ab='160k', ac=2, ar=44100)
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+    except Exception as e:
+        logging.exception(e.stderr)
+        raise Exception(e.stderr)
+    return io.BytesIO(out)
+
+def speechToTextFunction(url):
+    try:
+        r = sr.Recognizer()
+        audioReceived = decode_audio(url)
+        logging.debug('Empieza utilización del servicio speechRecognition {}'.format(audioReceived.__sizeof__()))
+        with sr.AudioFile(audioReceived) as source:
+            logging.debug('Captura el AudioSource del archivo')
+            audio = r.record(source)
+        try:
+            logging.debug('Envía el AudioSource a Google para su procesamiento')
+            return r.recognize_google(audio,language="es-ES")
+            # pip install google-api-python-client
+            # nanocred = open("googleAI-Harima.json").read()
+            # return r.recognize_google_cloud(audio,language="es-ES",credentials_json=nanocred)
+        except sr.UnknownValueError:
+            logging.exception('Audio no reconocible.')
+            raise Exception('Audio no reconocible.')
+        except sr.RequestError as e:
+            logging.exception('Error: {} '.format(e))
+            raise Exception(e)
+    except Exception as e:
+        raise(e)
+
+def textToSpeechFunction(mensaje):
+    try:
+        language = 'es-es'
+        myobj = gTTS(text=mensaje, lang=language, slow=False)
+        # path = 'C:\\APPS\\PUBLIC\\STTaudio'
+        path = getPath()
+        if path.__contains__('\\'):
+            path = '{}\\files\\'.format(path)
+        else:
+            path = '{}/files/'.format(path)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        logging.debug('path: {}'.format(path))
+        filename = '{}.mp3'.format(generateRandomNameTemp())
+        logging.debug('filename: {}'.format(filename))
+        myobj.save('{}{}'.format(path,filename))
+        return '{}'.format(filename)
+    except Exception as e:
+        logging.exception('Error: {} '.format(e))
+        raise(e)
+
+@app.route('/voiceprocess', methods=['GET','POST'])
+def voiceprocess():
+    try:
+        if (request.method == 'POST'):
+            some_json = request.get_json() # request -> json
+            jsonstring = json.dumps(some_json) # json -> string
+            logging.debug('voiceprocess: jsonstring: {}'.format(jsonstring))
+            pedido = Pedido.from_json(jsonstring) # string -> object
+            if pedido.tipo.lower() == 'speechtotext':
+                logging.debug('voiceprocess: entró a speechToText')
+                pedido.respuesta = 'speech -> text'
+                pedido.mensaje = speechToTextFunction(pedido.url)
+            elif pedido.tipo.lower() == 'texttospeech':
+                logging.debug('voiceprocess: entró a textToSpeech')
+                pedido.respuesta = "text -> speech"
+                pedido.url = textToSpeechFunction(pedido.mensaje)
+                pedido.url = '{}{}'.format(pedido.path,pedido.url)
+            else:
+                raise Exception('Solicitud inválida.')
+            return jsonify(pedido.__dict__), 200
+        else:
+            return jsonify({'tipo':'speechToText or textToSpeech'})
+    except Exception as e:
+        logging.exception('ERROR: {}'.format(e))
+        return jsonify(str(e)), 400
+
+@app.route('/values')
+def hola():
+    return jsonify({'about':'FLASK API REST RUNNING'})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0')
