@@ -9,6 +9,7 @@ import os
 import subprocess
 import random
 import logging
+from logdna import LogDNAHandler
 import datetime
 import ffmpeg
 
@@ -35,19 +36,21 @@ class PrefixMiddleware(object):
 # wsgi_app = app.wsgi_app
 app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/api')
 
-log_filename = 'log.log'
-log_miniumlevel = logging.DEBUG
-log_format = '%(asctime)s %(levelname)s %(message)s'
-log_dateformat = '%Y%m%d.%H%M%S'
+ingestionKey = 'b7c813e09f26938d8bcd7c4f38be2a40'
+logdna_options = {
+  'app': 'stt',
+  'level': 'Debug',
+  'index_meta': True
+}
 logging.basicConfig(
-    handlers=[logging.FileHandler(
-        filename=log_filename,
-        encoding='utf-8',
-        mode='a+'
-    )],
-    level=log_miniumlevel,
-    format=log_format,
-    datefmt=log_dateformat)
+    handlers=[
+        logging.FileHandler(filename='log.log', encoding='utf-8', mode='a+'),
+        LogDNAHandler(ingestionKey, logdna_options)
+    ],
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y%m%d.%H%M%S'
+)
 
 class SttDTO:
     # Constructor
