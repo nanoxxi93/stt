@@ -169,7 +169,7 @@ def voiceprocess_controller():
                     sttDTO.url = '{}{}'.format(sttDTO.path, sttDTO.url)
                 else:
                     raise ValueError('Valid type are speechtotext or texttospeech')
-                logging.info('{} --> RESULT: {}'.format(endpoint, json.dumps(sttDTO)))
+                logging.info('{} --> RESULT: {}'.format(endpoint, json.dumps(sttDTO.__dict__)))
                 return jsonify(sttDTO.__dict__), 200
             else:
                 raise TypeError('The body is not a valid json')
