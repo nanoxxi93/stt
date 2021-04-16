@@ -6,7 +6,7 @@ from logdna import LogDNAHandler
 import datetime
 import requests
 from urllib import request as rq
-import io
+from io import BytesIO
 import os
 import random
 import speech_recognition as sr
@@ -101,7 +101,7 @@ def fn_decode_audio(in_filename, **input_kwargs):
             .overwrite_output()
             .run(capture_stdout=True, capture_stderr=True)
         )
-        return io.BytesIO(out)
+        return BytesIO(out)
     except FileNotFoundError as e:
         raise e
     except ffmpeg.Error as e:
@@ -140,8 +140,9 @@ def fn_text_to_speech(sttDTO):
         gTTS_obj = gTTS(text=sttDTO.mensaje, lang=sttDTO.lang, slow=False)
         filename = '{}.mp3'.format(fn_generate_random_name())
         if type(sttDTO.storage) is dict:
-            fp = io.BytesIO()
+            fp = BytesIO()
             gTTS_obj.write_to_fp(fp)
+            fp.seek(0)
             files = {'': (filename, fp)}
             logging.debug('{} --> filename: {}'.format(fnc, filename))
             response = requests.post(sttDTO.storage["_url"], data=sttDTO.storage, files=files)
